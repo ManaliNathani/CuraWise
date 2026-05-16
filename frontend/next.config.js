@@ -1,7 +1,7 @@
-/** @type {import('next').NextConfig} */
+﻿/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Django APPEND_SLASH adds trailing slashes; without this, Next strips them and /api/* loops 308↔301.
+  // Django APPEND_SLASH adds trailing slashes; without this, Next strips them and /api/* loops 308<->301.
   skipTrailingSlashRedirect: true,
   // Use fallback so App Router routes (e.g. /api/auth/login) run before proxying to Django.
   async rewrites() {
@@ -21,3 +21,5 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+
+

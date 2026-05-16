@@ -40,12 +40,17 @@ export default function DoctorDashboard() {
   const [approved, setApproved] = useState<boolean | null>(null);
   const [filter, setFilter] = useState("All");
   const [chatError, setChatError] = useState<string | null>(null);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGet<{ profile: { role: string } }>("/auth/me/")
+    apiGet<{ profile: { role: string }; doctor_approved?: boolean | null }>("/auth/me/")
       .then((me) => {
         if (me.profile?.role !== "doctor" && me.profile?.role !== "admin") {
           window.location.href = "/login";
+          return;
+        }
+        if (me.profile?.role === "doctor" && me.doctor_approved !== true) {
+          window.location.href = "/onboarding?pending=doctor-approval";
         }
       })
       .catch(() => {
@@ -88,6 +93,24 @@ export default function DoctorDashboard() {
     }
   };
 
+  const markDone = async () => {
+    if (!activeConsultation) return;
+    try {
+      await apiPost(`/consultations/${activeConsultation.id}/close/`, {});
+      setActionStatus(`Consultation #${activeConsultation.id} marked done.`);
+      setQueue((prev) => prev.filter((q) => q.id !== activeConsultation.id));
+      setActiveConsultation(null);
+    } catch (err) {
+      setActionStatus(err instanceof Error ? err.message : "Could not mark done.");
+    }
+  };
+
+  const openVideoConference = () => {
+    if (!activeConsultation) return;
+    const room = `curawise-consult-${activeConsultation.id}`;
+    window.open(`https://meet.jit.si/${room}`, "_blank", "noopener,noreferrer");
+  };
+
   const visibleQueue = queue.filter((item) => {
     if (filter === "All") return true;
     const text = item.symptom_check?.predicted_condition?.toLowerCase() || "";
@@ -97,7 +120,7 @@ export default function DoctorDashboard() {
   });
 
   return (
-    <RoleShell title="Doctor dashboard" subtitle="Live consults and triage">
+    <RoleShell role="doctor" title="Clinical Triage Workspace" subtitle="Handle queue, prioritize critical alerts, and chat with patients">
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Queue" value={queue.length} icon="Q" />
         <StatCard label="Urgent" value={2} icon="U" />
@@ -111,8 +134,8 @@ export default function DoctorDashboard() {
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-        <section className="dashboard-tile card-3d rounded-2xl border border-pink-100/80 bg-white/85 backdrop-blur-sm p-6 shadow-sm transition-all duration-300">
-          <div className="flex items-center justify-between">
+        <section className="dashboard-tile card-3d rounded-2xl border border-pink-100/80 bg-white/85 backdrop-blur-sm p-4 shadow-sm transition-all duration-300 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">Patient Queue</h2>
             <div className="flex items-center gap-2 text-xs">
               {["All", "Critical", "Moderate"].map((item) => (
@@ -154,8 +177,8 @@ export default function DoctorDashboard() {
           )}
         </section>
 
-        <section className="dashboard-tile card-3d rounded-2xl border border-pink-100/80 bg-white/85 backdrop-blur-sm p-6 shadow-sm transition-all duration-300">
-          <h2 className="text-xl font-semibold">Live Chat</h2>
+        <section className="dashboard-tile card-3d rounded-2xl border border-pink-100/80 bg-white/85 backdrop-blur-sm p-4 shadow-sm transition-all duration-300 sm:p-6">
+          <h2 className="text-xl font-semibold">Consultation Chat</h2>
           {approved === false ? (
             <p className="mt-4 text-sm text-muted">Chat unlocks after admin approval.</p>
           ) : activeConsultation ? (
@@ -172,9 +195,9 @@ export default function DoctorDashboard() {
                 ))}
                 {messages.length === 0 && <p className="text-muted">No messages yet.</p>}
               </div>
-              <div className="mt-4 flex gap-3">
+              <div className="mt-4 flex flex-wrap gap-2 sm:gap-3">
                 <input
-                  className="flex-1 rounded-xl border border-slate-200 p-3 text-sm"
+                  className="min-w-[220px] flex-1 rounded-xl border border-slate-200 p-3 text-sm"
                   placeholder="Type a message..."
                   value={messageDraft}
                   onChange={(event) => setMessageDraft(event.target.value)}
@@ -186,8 +209,23 @@ export default function DoctorDashboard() {
                 >
                   Send
                 </button>
-                {chatError && <p className="mt-2 text-sm text-red-600">{chatError}</p>}
+                <button
+                  type="button"
+                  onClick={openVideoConference}
+                  className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-800 transition hover:bg-cyan-100"
+                >
+                  Video Call
+                </button>
+                <button
+                  type="button"
+                  onClick={markDone}
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
+                >
+                  Mark Done
+                </button>
+                {chatError && <p className="w-full text-sm text-red-600">{chatError}</p>}
               </div>
+              {actionStatus && <p className="mt-2 text-sm text-slate-600">{actionStatus}</p>}
             </>
           ) : (
             <p className="mt-4 text-sm text-muted">Select a consultation to open chat.</p>
@@ -197,3 +235,4 @@ export default function DoctorDashboard() {
     </RoleShell>
   );
 }
+

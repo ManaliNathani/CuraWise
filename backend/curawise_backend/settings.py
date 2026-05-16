@@ -117,10 +117,12 @@ else:
         "http://127.0.0.1:3000",
     ]
 
-SESSION_COOKIE_DOMAIN = "localhost"
-CSRF_COOKIE_DOMAIN = "localhost"
-SESSION_COOKIE_SAMESITE = "None"
-CSRF_COOKIE_SAMESITE = "None"
+# Keep host-only cookies in local dev (works for both localhost and 127.0.0.1).
+SESSION_COOKIE_DOMAIN = None
+CSRF_COOKIE_DOMAIN = None
+# SameSite=None requires Secure=True; for local http we should use Lax.
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = False
 CSRF_COOKIE_SECURE = False
 SESSION_COOKIE_HTTPONLY = True

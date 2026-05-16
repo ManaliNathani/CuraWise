@@ -4,57 +4,39 @@ from .models import DoctorProfile, Hospital, UserProfile
 
 
 def run():
-    hospital, _ = Hospital.objects.get_or_create(
-        name="CityCare Medical Center",
+    # Keep data minimal as requested: only one admin, one doctor, one user.
+    keep_usernames = {"admin", "dr_arjun", "user_aisha"}
+    User.objects.exclude(username__in=keep_usernames).delete()
+    Hospital.objects.all().delete()
+
+    admin, _ = User.objects.get_or_create(username="admin")
+    admin.set_password("admin123")
+    admin.save()
+    admin.userprofile.role = UserProfile.ROLE_ADMIN
+    admin.userprofile.save()
+
+    doctor, _ = User.objects.get_or_create(username="dr_arjun", defaults={"first_name": "Arjun"})
+    doctor.set_password("doctor123")
+    doctor.first_name = doctor.first_name or "Arjun"
+    doctor.save()
+    doctor.userprofile.role = UserProfile.ROLE_DOCTOR
+    doctor.userprofile.save()
+    DoctorProfile.objects.update_or_create(
+        user=doctor,
         defaults={
-            "city": "Mumbai",
-            "address": "24 Health Avenue",
-            "specialties": "Cardiology, General Medicine, Neurology",
-            "phone": "+91-90000-00000",
-        },
-    )
-    Hospital.objects.get_or_create(
-        name="GreenCross Clinic",
-        defaults={
-            "city": "Mumbai",
-            "address": "18 Bandra West",
-            "specialties": "Neurology, Pediatrics",
-            "phone": "+91-90000-00001",
-        },
-    )
-    Hospital.objects.get_or_create(
-        name="Harbor Hospital",
-        defaults={
-            "city": "Mumbai",
-            "address": "Dock Road, Colaba",
-            "specialties": "Emergency, General Medicine",
-            "phone": "+91-90000-00002",
-        },
-    )
-    Hospital.objects.get_or_create(
-        name="Delhi Medical Institute",
-        defaults={
-            "city": "New Delhi",
-            "address": "Connaught Place",
-            "specialties": "Multi-specialty, Oncology",
-            "phone": "+91-90000-00003",
+            "specialty": "General Medicine",
+            "hospital": None,
+            "is_approved": True,
+            "approval_status": DoctorProfile.STATUS_APPROVED,
+            "review_note": "Seed approved",
         },
     )
 
-    if not User.objects.filter(username="admin").exists():
-        admin = User.objects.create_user(username="admin", password="admin123")
-        admin.userprofile.role = UserProfile.ROLE_ADMIN
-        admin.userprofile.save()
+    user, _ = User.objects.get_or_create(username="user_aisha", defaults={"first_name": "Aisha"})
+    user.set_password("user123")
+    user.first_name = user.first_name or "Aisha"
+    user.save()
+    user.userprofile.role = UserProfile.ROLE_USER
+    user.userprofile.save()
 
-    if not User.objects.filter(username="dr_arjun").exists():
-        doctor = User.objects.create_user(username="dr_arjun", password="doctor123", first_name="Arjun")
-        doctor.userprofile.role = UserProfile.ROLE_DOCTOR
-        doctor.userprofile.save()
-        DoctorProfile.objects.create(user=doctor, specialty="Cardiology", hospital=hospital, is_approved=True)
-
-    if not User.objects.filter(username="user_aisha").exists():
-        user = User.objects.create_user(username="user_aisha", password="user123", first_name="Aisha")
-        user.userprofile.role = UserProfile.ROLE_USER
-        user.userprofile.save()
-
-    print("Seed data ready.")
+    print("Minimal seed ready: admin, one doctor, one user. No seeded hospitals.")

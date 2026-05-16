@@ -16,6 +16,17 @@ class IsRole(BasePermission):
 class IsDoctor(IsRole):
     allowed_roles = ["doctor", "admin"]
 
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        profile = getattr(request.user, "userprofile", None)
+        if not profile:
+            return False
+        if profile.role == "admin":
+            return True
+        doctor_profile = getattr(request.user, "doctorprofile", None)
+        return bool(doctor_profile and doctor_profile.is_approved)
+
 
 class IsAdmin(IsRole):
     allowed_roles = ["admin"]

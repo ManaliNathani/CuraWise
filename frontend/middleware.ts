@@ -29,8 +29,13 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/admin") && role !== "admin") {
       return NextResponse.redirect(new URL("/login", request.url));
     }
+    const doctorApproved = data?.doctor_approved;
+
     if (pathname.startsWith("/doctor") && role !== "doctor" && role !== "admin") {
       return NextResponse.redirect(new URL("/login", request.url));
+    }
+    if (pathname.startsWith("/doctor") && role === "doctor" && doctorApproved !== true) {
+      return NextResponse.redirect(new URL("/onboarding?pending=doctor-approval", request.url));
     }
     if (pathname.startsWith("/user") && role !== "user") {
       return NextResponse.redirect(new URL("/login", request.url));

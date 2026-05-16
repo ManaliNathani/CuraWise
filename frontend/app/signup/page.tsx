@@ -29,7 +29,7 @@ export default function SignupPage() {
 
   const detectedRole = useMemo(() => {
     const value = `${username} ${firstName}`.toLowerCase();
-    if (value.startsWith("dr") || value.includes(" doctor") || value.includes("doctor") || value.includes("dr ")) {
+    if (/\bdr\.?\b/.test(value) || value.includes("doctor")) {
       return "doctor";
     }
     return "user";

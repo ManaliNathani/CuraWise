@@ -21,12 +21,21 @@ export default function LoginPage() {
     setMessage(null);
     setIsLoading(true);
     try {
-      const user = await apiPost<{ profile?: { role?: string } }>(
+      const user = await apiPost<{
+        profile?: { role?: string };
+        doctor_approved?: boolean | null;
+        doctor_approval_status?: "pending" | "approved" | "rejected" | null;
+      }>(
         "/auth/login/",
         { username, password },
         { skipCsrf: true }
       );
-      const dest = dashboardForRole(user?.profile?.role);
+      const role = user?.profile?.role;
+      const status = user?.doctor_approval_status;
+      const pendingDoctor = role === "doctor" && user?.doctor_approved !== true;
+      const dest = pendingDoctor
+        ? `/onboarding?pending=doctor-approval${status ? `&status=${status}` : ""}`
+        : dashboardForRole(role);
       // Hard navigation so middleware runs with cookies the browser just stored
       window.location.replace(dest);
     } catch (err) {

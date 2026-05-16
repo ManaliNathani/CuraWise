@@ -24,22 +24,62 @@ class UserProfile(models.Model):
 
 
 class Hospital(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    APPROVAL_STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
+
     name = models.CharField(max_length=255)
     city = models.CharField(max_length=120)
     address = models.CharField(max_length=255)
     specialties = models.CharField(max_length=255)
     phone = models.CharField(max_length=30, blank=True)
+    description = models.TextField(blank=True)
+    is_approved = models.BooleanField(default=False)
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_STATUS_CHOICES, default=STATUS_PENDING)
+    review_note = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="hospital_reviews",
+    )
 
     def __str__(self):
         return f"{self.name} - {self.city}"
 
 
 class DoctorProfile(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    APPROVAL_STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_APPROVED, "Approved"),
+        (STATUS_REJECTED, "Rejected"),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     specialty = models.CharField(max_length=120)
     hospital = models.ForeignKey(Hospital, on_delete=models.SET_NULL, null=True, blank=True)
     bio = models.TextField(blank=True)
     is_approved = models.BooleanField(default=False)
+    approval_status = models.CharField(max_length=20, choices=APPROVAL_STATUS_CHOICES, default=STATUS_PENDING)
+    review_note = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="doctor_reviews",
+    )
 
     def __str__(self):
         return f"Dr. {self.user.get_full_name() or self.user.username}"

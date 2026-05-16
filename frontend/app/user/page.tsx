@@ -4,326 +4,332 @@ import { useEffect, useMemo, useState } from "react";
 import RoleShell from "../components/RoleShell";
 import { apiGet, apiPost } from "../lib/api";
 
-interface Doctor {
-  id: number;
-  user: { id: number; first_name: string; last_name: string; username: string };
-  specialty: string;
-  hospital?: { name: string; city: string } | null;
-}
-
 interface SymptomCheck {
   id: number;
   predicted_condition: string;
 }
 
-interface Consultation {
-  id: number;
-  doctor: { id: number; first_name: string; last_name: string; username: string };
+interface SymptomReport {
+  clinical_summary: {
+    primary_condition: string;
+    confidence_percent: number;
+    triage: string;
+    red_flags: string[];
+    recommended_specialties: string[];
+  };
+  doctor_recommendations: Array<{
+    doctor_name: string;
+    specialty: string;
+    hospital: string | null;
+  }>;
+  hospital_recommendations: Array<{
+    name: string;
+    city: string;
+    specialties: string;
+  }>;
 }
 
-interface Message {
-  id: number;
-  content: string;
-  sender: { username: string };
-  created_at: string;
-}
+type Step = 1 | 2 | 3 | 4;
 
-interface Hospital {
-  id: number;
-  name: string;
-  city: string;
-  address: string;
-  specialties: string;
-  phone: string;
-}
-
-const demoDoctors: Doctor[] = [
-  {
-    id: 1,
-    user: { id: 1, first_name: "Arjun", last_name: "", username: "dr_arjun" },
-    specialty: "Cardiology",
-    hospital: { name: "CityCare Medical Center", city: "Mumbai" }
-  },
-  {
-    id: 2,
-    user: { id: 2, first_name: "Neha", last_name: "", username: "dr_neha" },
-    specialty: "Neurology",
-    hospital: { name: "GreenCross Clinic", city: "Mumbai" }
-  },
-  {
-    id: 3,
-    user: { id: 3, first_name: "Kabir", last_name: "", username: "dr_kabir" },
-    specialty: "General Medicine",
-    hospital: { name: "Harbor Hospital", city: "Mumbai" }
-  }
+const contextOptions = [
+  "I recently had fever or chills",
+  "I noticed yellow eyes / skin",
+  "My urine color looks darker than usual",
+  "I have vomiting or nausea",
+  "I have loss of appetite",
+  "Symptoms are getting worse day by day",
 ];
 
 export default function UserDashboard() {
-  const [symptoms, setSymptoms] = useState("");
+  const [step, setStep] = useState<Step>(1);
+  const [fullName, setFullName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [email, setEmail] = useState("");
+  const [ageBand, setAgeBand] = useState("Adult");
+  const [gender, setGender] = useState("Not specified");
   const [city, setCity] = useState("");
-  const [severity, setSeverity] = useState("Mild");
+  const [symptoms, setSymptoms] = useState("");
+  const [duration, setDuration] = useState("1-3 days");
+  const [severity, setSeverity] = useState("Moderate");
+  const [selectedContext, setSelectedContext] = useState<string[]>([]);
   const [check, setCheck] = useState<SymptomCheck | null>(null);
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [activeConsultation, setActiveConsultation] = useState<Consultation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [messageDraft, setMessageDraft] = useState("");
+  const [report, setReport] = useState<SymptomReport | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     apiGet<{ profile: { role: string } }>("/auth/me/")
       .then((me) => {
-        if (me.profile?.role !== "user") {
-          window.location.href = "/login";
-        }
+        if (me.profile?.role !== "user") window.location.href = "/login";
       })
-      .catch(() => {
-        window.location.href = "/login";
-      });
-    apiGet<Doctor[]>("/doctors/")
-      .then((data) => setDoctors(data.length ? data : demoDoctors))
-      .catch(() => setDoctors(demoDoctors));
-    apiGet<Hospital[]>("/hospitals/")
-      .then(setHospitals)
-      .catch(() => setHospitals([]));
+      .catch(() => (window.location.href = "/login"));
   }, []);
 
-  const suggestedDoctors = useMemo(() => {
-    if (!check) return doctors.slice(0, 3);
-    const condition = check.predicted_condition.toLowerCase();
-    let keyword = "general";
-    if (condition.includes("cardiac") || condition.includes("respiratory")) keyword = "cardio";
-    if (condition.includes("migraine") || condition.includes("headache")) keyword = "neuro";
-    if (condition.includes("viral")) keyword = "general";
-    const filtered = doctors.filter((doctor) =>
-      doctor.specialty.toLowerCase().includes(keyword)
+  const progress = useMemo(() => Math.round((step / 4) * 100), [step]);
+
+  const toggleContext = (item: string) => {
+    setSelectedContext((prev) =>
+      prev.includes(item) ? prev.filter((r) => r !== item) : [...prev, item]
     );
-    return (filtered.length ? filtered : doctors).slice(0, 3);
-  }, [doctors, check]);
+  };
 
-  const recommendedHospitals = useMemo(() => {
-    if (!hospitals.length) return [];
-    const q = city.trim().toLowerCase();
-    if (!q) {
-      return hospitals.slice(0, 6);
-    }
-    const matched = hospitals.filter((h) => {
-      const hc = h.city.toLowerCase();
-      return hc === q || hc.includes(q) || q.includes(hc);
-    });
-    return matched.length ? matched : hospitals.slice(0, 6);
-  }, [hospitals, city]);
+  const canContinueStep1 = fullName.trim().length > 2 && phoneNumber.trim().length >= 8 && city.trim().length > 1;
+  const canContinueStep2 = symptoms.trim().length > 4;
 
-  const handleAnalyze = async () => {
+  const analyze = async () => {
     setStatus(null);
-    setIsAnalyzing(true);
+    setIsLoading(true);
     try {
+      const enrichedSymptoms = `Patient: ${fullName}. Phone: ${phoneNumber}. Email: ${email || "not provided"}. ${symptoms}. Duration: ${duration}. Context: ${
+        selectedContext.join(", ") || "none"
+      }. Age group: ${ageBand}. Gender: ${gender}.`;
       const result = await apiPost<SymptomCheck>("/symptom-checks/", {
-        symptoms,
+        symptoms: enrichedSymptoms,
         severity,
-        city
+        city,
       });
       setCheck(result);
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Analysis failed");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const startConsult = async (doctorId: number) => {
-    if (!check) {
-      setStatus("Run a symptom check first.");
-      return;
-    }
-    try {
-      const consultation = await apiPost<Consultation>("/consultations/create/", {
-        doctor_id: doctorId,
-        symptom_check_id: check.id
+      const generatedReport = await apiPost<SymptomReport>("/symptom-report/", {
+        symptoms: enrichedSymptoms,
+        severity,
+        city,
       });
-      setActiveConsultation(consultation);
-      const history = await apiGet<Message[]>(`/consultations/${consultation.id}/messages/`);
-      setMessages(history);
-      setStatus("Consultation started. You can chat now.");
+      setReport(generatedReport);
+      setStep(4);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Failed to start consultation");
+      setStatus(err instanceof Error ? err.message : "Could not generate report");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (!activeConsultation) return;
-    const id = activeConsultation.id;
-    const loadMessages = () => {
-      apiGet<Message[]>(`/consultations/${id}/messages/`).then(setMessages).catch(() => null);
-    };
-    loadMessages();
-    const interval = setInterval(loadMessages, 3000);
-    return () => clearInterval(interval);
-  }, [activeConsultation]);
-
-  const sendMessage = async () => {
-    if (!activeConsultation || !messageDraft.trim()) return;
-    const text = messageDraft.trim();
-    setMessageDraft("");
-    try {
-      const msg = await apiPost<Message>(`/consultations/${activeConsultation.id}/messages/`, { content: text });
-      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Failed to send message");
-      setMessageDraft(text);
-    }
+  const downloadReportPdf = () => {
+    if (!report) return;
+    const popup = window.open("", "_blank");
+    if (!popup) return;
+    const html = `
+      <html>
+        <head><title>CuraWise Report</title></head>
+        <body style="font-family: Arial, sans-serif; padding: 24px;">
+          <h1>CuraWise Symptom Report</h1>
+          <p><strong>Primary:</strong> ${report.clinical_summary.primary_condition}</p>
+          <p><strong>Confidence:</strong> ${report.clinical_summary.confidence_percent}%</p>
+          <p><strong>Triage:</strong> ${report.clinical_summary.triage}</p>
+          <p><strong>Specialties:</strong> ${report.clinical_summary.recommended_specialties.join(", ") || "General Medicine"}</p>
+          <p><strong>Red Flags:</strong> ${report.clinical_summary.red_flags.join(", ") || "None"}</p>
+          <h3>Doctors</h3>
+          ${report.doctor_recommendations.map((d) => `<p>${d.doctor_name} (${d.specialty}) ${d.hospital ? "- " + d.hospital : ""}</p>`).join("")}
+          <h3>Hospitals</h3>
+          ${report.hospital_recommendations.map((h) => `<p>${h.name} (${h.city})</p>`).join("")}
+        </body>
+      </html>
+    `;
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
+    popup.focus();
+    popup.print();
   };
 
   return (
-    <RoleShell title="User dashboard" subtitle="Patient experience">
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <section className="dashboard-tile card-3d rounded-2xl border border-pink-100/80 bg-white/85 backdrop-blur-sm p-6 shadow-sm transition-all duration-300">
-          <h2 className="text-xl font-semibold">Symptom Checker</h2>
-          <p className="mt-2 text-sm text-muted">Describe what you&apos;re feeling and receive AI guidance.</p>
-          <div className="mt-4 grid gap-4">
-            <textarea
-              className="min-h-[130px] rounded-xl border border-slate-200 p-4 text-sm"
-              placeholder="Example: fever, cough, sore throat"
-              value={symptoms}
-              onChange={(event) => setSymptoms(event.target.value)}
-            />
-            <div className="grid gap-4 md:grid-cols-2">
-              <input
-                className="rounded-xl border border-slate-200 p-3 text-sm"
-                placeholder="City"
-                value={city}
-                onChange={(event) => setCity(event.target.value)}
-              />
-              <select
-                className="rounded-xl border border-slate-200 p-3 text-sm"
-                value={severity}
-                onChange={(event) => setSeverity(event.target.value)}
-              >
-                <option>Mild</option>
-                <option>Moderate</option>
-                <option>Severe</option>
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={handleAnalyze}
-                disabled={isAnalyzing}
-                className={`rounded-xl bg-accent px-6 py-3 text-sm font-semibold text-white transition-all duration-200 ${
-                  isAnalyzing ? "opacity-75 cursor-not-allowed" : "hover:bg-accentDeep hover:scale-105 active:scale-95"
-                }`}
-              >
-                {isAnalyzing ? "Analyzing..." : "Analyze symptoms"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatus("Draft saved locally.")}
-                className="rounded-xl border border-slate-200 px-6 py-3 text-sm font-semibold text-ink transition-all duration-200 hover:bg-slate-50 hover:scale-105 active:scale-95"
-              >
-                Save draft
-              </button>
-            </div>
-            {check && (
-              <div className="rounded-xl border border-pink-200 bg-pink-50 p-4 text-sm text-pink-900">
-                AI Insight: {check.predicted_condition}
-              </div>
-            )}
-            {recommendedHospitals.length > 0 && (
-              <div className="rounded-xl border border-pink-100 bg-white p-4 shadow-sm">
-                <h3 className="text-sm font-semibold text-ink">Hospital recommendations</h3>
-                <p className="mt-1 text-xs text-muted">
-                  {city.trim()
-                    ? `Facilities in or near “${city.trim()}”. We also show network hospitals if none match your city.`
-                    : "Enter your city above for localized matches. Showing network hospitals you can consider."}
-                </p>
-                <ul className="mt-3 space-y-2 text-sm">
-                  {recommendedHospitals.map((h) => (
-                    <li
-                      key={h.id}
-                      className="rounded-lg border border-pink-100/80 bg-pink-50/40 px-3 py-2 transition hover:border-accent/25"
-                    >
-                      <span className="font-semibold text-ink">{h.name}</span>
-                      <span className="text-muted"> · {h.city}</span>
-                      {h.phone ? <span className="block text-xs text-muted mt-0.5">{h.phone}</span> : null}
-                      <span className="block text-xs text-muted mt-0.5">{h.address}</span>
-                      <span className="block text-xs text-accentDeep/90 mt-0.5">Specialties: {h.specialties}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {status && <p className="text-sm text-muted">{status}</p>}
+    <RoleShell role="user" title="Smart Symptom Interview" subtitle="Step-by-step health assessment and triage report">
+      <section className="dashboard-tile rounded-2xl border border-cyan-100 bg-white/90 p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-slate-500">Interview Progress</p>
+            <p className="text-lg font-semibold text-slate-800">Step {step} of 4</p>
           </div>
-        </section>
-
-        <section className="dashboard-tile card-3d rounded-2xl border border-pink-100/80 bg-white/85 backdrop-blur-sm p-6 shadow-sm transition-all duration-300">
-          <h2 className="text-xl font-semibold">Doctor Consult</h2>
-          <p className="mt-2 text-sm text-muted">Pick a specialist and start a real-time chat.</p>
-          <div className="mt-4 space-y-3 text-sm">
-            {suggestedDoctors.map((doctor) => (
+          <div className="w-full max-w-md">
+            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
               <div
-                key={doctor.id}
-                className="flex items-center justify-between rounded-xl border border-pink-100/70 bg-pink-50/40 p-4 transition hover:border-accent/25 hover:shadow-sm"
+                className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="dashboard-tile rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          {step === 1 && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-slate-900">1) Basic Profile</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                <input
+                  className="md:col-span-2 rounded-xl border border-slate-200 p-3 text-sm"
+                  placeholder="Full name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+                <input
+                  className="rounded-xl border border-slate-200 p-3 text-sm"
+                  placeholder="Phone number"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                />
+                <input
+                  className="rounded-xl border border-slate-200 p-3 text-sm"
+                  placeholder="Email (optional)"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                <select className="rounded-xl border border-slate-200 p-3 text-sm" value={ageBand} onChange={(e) => setAgeBand(e.target.value)}>
+                  <option>Child</option>
+                  <option>Adult</option>
+                  <option>Senior</option>
+                </select>
+                <select className="rounded-xl border border-slate-200 p-3 text-sm" value={gender} onChange={(e) => setGender(e.target.value)}>
+                  <option>Not specified</option>
+                  <option>Female</option>
+                  <option>Male</option>
+                </select>
+                <input
+                  className="md:col-span-2 rounded-xl border border-slate-200 p-3 text-sm"
+                  placeholder="City"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={!canContinueStep1}
+                onClick={() => setStep(2)}
+                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
               >
-                <div>
-                  <p className="font-semibold text-ink">
-                    Dr. {doctor.user.first_name || doctor.user.username}
-                  </p>
-                  <p className="text-xs text-muted">{doctor.specialty}</p>
-                  {doctor.hospital ? (
-                    <p className="mt-1 text-xs text-ink/80">
-                      {doctor.hospital.name} · {doctor.hospital.city}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-xs text-muted">Hospital: not linked</p>
-                  )}
-                </div>
+                Continue
+              </button>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-slate-900">2) Symptoms</h2>
+              <textarea
+                className="min-h-[140px] w-full rounded-xl border border-slate-200 p-4 text-sm"
+                placeholder="Example: yellow eyes, fever, tiredness, dark urine"
+                value={symptoms}
+                onChange={(e) => setSymptoms(e.target.value)}
+              />
+              <div className="grid gap-4 md:grid-cols-2">
+                <select className="rounded-xl border border-slate-200 p-3 text-sm" value={duration} onChange={(e) => setDuration(e.target.value)}>
+                  <option>Less than 24h</option>
+                  <option>1-3 days</option>
+                  <option>4-7 days</option>
+                  <option>More than a week</option>
+                </select>
+                <select className="rounded-xl border border-slate-200 p-3 text-sm" value={severity} onChange={(e) => setSeverity(e.target.value)}>
+                  <option>Mild</option>
+                  <option>Moderate</option>
+                  <option>Severe</option>
+                </select>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button type="button" onClick={() => setStep(1)} className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold">
+                  Back
+                </button>
                 <button
                   type="button"
-                  onClick={() => startConsult(doctor.user.id)}
-                  className="rounded-full bg-accent/10 px-3 py-1 text-xs font-semibold text-accentDeep transition-all duration-200 hover:bg-accent/20 hover:scale-105 active:scale-95"
+                  disabled={!canContinueStep2}
+                  onClick={() => setStep(3)}
+                  className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  Consult
+                  Continue
                 </button>
               </div>
-            ))}
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-slate-900">3) Quick Context Questions</h2>
+              <p className="text-sm text-slate-600">Select the statements that match your current situation.</p>
+              <div className="grid gap-2 md:grid-cols-2">
+                {contextOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => toggleContext(item)}
+                    className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
+                      selectedContext.includes(item)
+                        ? "border-blue-300 bg-blue-50 text-blue-900"
+                        : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button type="button" onClick={() => setStep(2)} className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold">
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={analyze}
+                  disabled={isLoading}
+                  className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {isLoading ? "Generating report..." : "Generate Report"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && report && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-slate-900">4) Triage Report</h2>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                <p><strong>Primary:</strong> {report.clinical_summary.primary_condition}</p>
+                <p><strong>Confidence:</strong> {report.clinical_summary.confidence_percent}%</p>
+                <p><strong>Triage:</strong> {report.clinical_summary.triage}</p>
+                <p><strong>Specialties:</strong> {report.clinical_summary.recommended_specialties.join(", ") || "General Medicine"}</p>
+                {report.clinical_summary.red_flags.length > 0 && (
+                  <p><strong>Red Flags:</strong> {report.clinical_summary.red_flags.join(", ")}</p>
+                )}
+              </div>
+              <button type="button" onClick={() => setStep(2)} className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold">
+                Edit Symptoms & Re-run
+              </button>
+              <button type="button" onClick={downloadReportPdf} className="rounded-xl bg-cyan-600 px-5 py-3 text-sm font-semibold text-white">
+                Download PDF
+              </button>
+            </div>
+          )}
+
+          {status && <p className="mt-4 text-sm text-rose-600">{status}</p>}
+        </section>
+
+        <section className="dashboard-tile rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <h3 className="text-lg font-semibold text-slate-900">Live Guidance</h3>
+          <div className="mt-4 space-y-3 text-sm text-slate-600">
+            <p>We ask questions step-by-step like a structured symptom interview.</p>
+            <p>Add more specific symptoms for better accuracy: location, duration, severity.</p>
+            <p>Red-flag symptoms will raise emergency triage automatically.</p>
           </div>
+          {check && (
+            <div className="mt-5 rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">
+              Last inference: {check.predicted_condition}
+            </div>
+          )}
+          {report && (
+            <div className="mt-5 space-y-3">
+              <h4 className="text-sm font-semibold text-slate-800">Top Doctors</h4>
+              {report.doctor_recommendations.slice(0, 3).map((d, idx) => (
+                <p key={`${d.doctor_name}-${idx}`} className="text-sm text-slate-700">
+                  {d.doctor_name} ({d.specialty}){d.hospital ? ` - ${d.hospital}` : ""}
+                </p>
+              ))}
+              <h4 className="text-sm font-semibold text-slate-800">Top Hospitals</h4>
+              {report.hospital_recommendations.slice(0, 3).map((h, idx) => (
+                <p key={`${h.name}-${idx}`} className="text-sm text-slate-700">
+                  {h.name} ({h.city})
+                </p>
+              ))}
+            </div>
+          )}
         </section>
       </div>
-
-      {activeConsultation && (
-        <section className="dashboard-tile card-3d mt-8 rounded-2xl border border-pink-100/80 bg-white/85 backdrop-blur-sm p-6 shadow-sm transition-all duration-300">
-          <h2 className="text-xl font-semibold">Live Chat</h2>
-          <p className="mt-2 text-sm text-muted">
-            Consultation #{activeConsultation.id} with Dr. {activeConsultation.doctor.first_name || activeConsultation.doctor.username}
-          </p>
-          <div className="mt-4 h-64 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
-            {messages.length === 0 && <p className="text-muted">No messages yet.</p>}
-            {messages.map((msg) => (
-              <div key={msg.id} className="mb-3">
-                <p className="text-xs text-muted">{msg.sender.username}</p>
-                <p className="text-ink">{msg.content}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex gap-3">
-            <input
-              className="flex-1 rounded-xl border border-slate-200 p-3 text-sm"
-              placeholder="Type a message..."
-              value={messageDraft}
-              onChange={(event) => setMessageDraft(event.target.value)}
-            />
-            <button
-              type="button"
-              onClick={sendMessage}
-              className="rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-accentDeep hover:scale-[1.02] active:scale-95"
-            >
-              Send
-            </button>
-          </div>
-        </section>
-      )}
     </RoleShell>
   );
 }
