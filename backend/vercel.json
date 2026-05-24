@@ -1,0 +1,14 @@
+{
+  "builds": [
+    {
+      "src": "curawise_backend/wsgi.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "curawise_backend/wsgi.py"
+    }
+  ]
+}
